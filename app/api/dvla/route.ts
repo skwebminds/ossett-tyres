@@ -29,15 +29,9 @@ function simpleCooldown(ip: string, vrm: string) {
 }
 
 function rateLimitResponse(retryAfterSec: number, which: string) {
-  return NextResponse.json(
+  return withCors(
     { ok: false, error: 429, message: `Rate limit hit (${which}). Try again in ~${retryAfterSec}s.` },
-    {
-      status: 429,
-      headers: {
-        "Retry-After": String(retryAfterSec),
-        "X-RateLimit-Policy": "IP:2s; IP+VRM:10s",
-      },
-    }
+    429
   );
 }
 
@@ -83,13 +77,23 @@ async function fetchOETyresRaw(vrm: string) {
   const url = `${OETYRES_URL}?vehicle_registration_mark=${encodeURIComponent(vrm)}`;
   const res = await fetch(url, {
     method: "GET",
-    headers: {
-      "x-api-key": process.env.ONEAUTO_API_KEY!,
-    },
+    headers: { "x-api-key": process.env.ONEAUTO_API_KEY! },
   });
   let data: any = null;
   try { data = await res.json(); } catch { data = null; }
   return { ok: res.ok, status: res.status, data };
+}
+
+// --- CORS helper ------------------------------------------------------------
+function withCors(body: any, status = 200) {
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
 }
 
 // --- Response builder -------------------------------------------------------
@@ -101,13 +105,13 @@ function buildResponse({
   tyresRaw?: { ok: boolean; status: number; data: any } | null;
 }) {
   const status = dvla.ok ? 200 : dvla.status;
-  return NextResponse.json(
+  return withCors(
     {
       ok: dvla.ok,
       dvla: dvla.data,       // full DVLA payload
       tyres: tyresRaw?.data, // full OneAuto response
     },
-    { status }
+    status
   );
 }
 
@@ -119,7 +123,7 @@ export async function POST(req: Request) {
     const ip = getClientIp(req);
     const body = await req.json().catch(() => ({} as any));
     const norm = normaliseAndValidateVRM(body?.registrationNumber ?? null);
-    if (!norm.ok) return NextResponse.json({ error: norm.error }, { status: 400 });
+    if (!norm.ok) return withCors({ error: norm.error }, 400);
 
     const cd = simpleCooldown(ip, norm.vrm);
     if (cd.blocked) return rateLimitResponse(cd.retryAfterSec, cd.which!);
@@ -130,7 +134,7 @@ export async function POST(req: Request) {
     const tyresRaw = await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }));
     return buildResponse({ dvla, tyresRaw });
   } catch (err: any) {
-    return NextResponse.json({ error: "Server error", detail: err?.message }, { status: 500 });
+    return withCors({ error: "Server error", detail: err?.message }, 500);
   }
 }
 
@@ -140,7 +144,7 @@ export async function GET(req: Request) {
     const ip = getClientIp(req);
     const { searchParams } = new URL(req.url);
     const norm = normaliseAndValidateVRM(searchParams.get("reg"));
-    if (!norm.ok) return NextResponse.json({ error: norm.error }, { status: 400 });
+    if (!norm.ok) return withCors({ error: norm.error }, 400);
 
     const cd = simpleCooldown(ip, norm.vrm);
     if (cd.blocked) return rateLimitResponse(cd.retryAfterSec, cd.which!);
@@ -151,7 +155,18 @@ export async function GET(req: Request) {
     const tyresRaw = await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }));
     return buildResponse({ dvla, tyresRaw });
   } catch (err: any) {
-    return NextResponse.json({ error: "Server error", detail: err?.message }, { status: 500 });
+    return withCors({ error: "Server error", detail: err?.message }, 500);
   }
 }
 
+// --- Handle OPTIONS (CORS preflight) ---------------------------------------
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
+}
