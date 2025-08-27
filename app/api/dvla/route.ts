@@ -83,7 +83,9 @@ async function fetchOETyresRaw(vrm: string) {
   const url = `${OETYRES_URL}?vehicle_registration_mark=${encodeURIComponent(vrm)}`;
   const res = await fetch(url, {
     method: "GET",
-    headers: { Authorization: `Bearer ${process.env.ONEAUTO_API_KEY!}` },
+    headers: {
+      "x-api-key": process.env.ONEAUTO_API_KEY!,
+    },
   });
   let data: any = null;
   try { data = await res.json(); } catch { data = null; }
@@ -152,3 +154,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Server error", detail: err?.message }, { status: 500 });
   }
 }
+
