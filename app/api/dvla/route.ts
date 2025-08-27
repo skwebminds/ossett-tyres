@@ -8,7 +8,6 @@ const OETYRES_URL =
   "https://api.oneautoapi.com/driverightdata/oetyrefitmentdata/v2";
 
 // --- Simple cooldown --------------------------------------------------------
-// Map of last request timestamps by key (ip / ip+vrm). Tiny traffic => fine in-memory.
 const lastRequest: Map<string, number> = new Map();
 
 /** Cooldown: per-IP (2s) and per-IP+VRM (10s). */
@@ -76,7 +75,7 @@ async function fetchDvla(reg: string) {
   return { ok: resp.ok, status: resp.status, data };
 }
 
-// --- Upstream: OneAuto (raw) -----------------------------------------------
+// --- Upstream: OneAuto (raw, no filtering) ---------------------------------
 async function fetchOETyresRaw(vrm: string) {
   if (!process.env.ONEAUTO_API_KEY) {
     return { ok: false, status: 501, data: { error: "Tyre API key not configured (ONEAUTO_API_KEY)" } };
@@ -91,15 +90,6 @@ async function fetchOETyresRaw(vrm: string) {
   return { ok: res.ok, status: res.status, data };
 }
 
-// --- Extract ONLY "tyre_size_front"/"tyre_size_rear" ------------------------
-function pickFrontRearTyreSizes(raw: any) {
-  const model = raw?.oe_data?.modelIDs?.[0];
-  return {
-    tyre_size_front: model?.tyre_size_front ?? null,
-    tyre_size_rear: model?.tyre_size_rear ?? null,
-  };
-}
-
 // --- Response builder -------------------------------------------------------
 function buildResponse({
   dvla,
@@ -109,16 +99,11 @@ function buildResponse({
   tyresRaw?: { ok: boolean; status: number; data: any } | null;
 }) {
   const status = dvla.ok ? 200 : dvla.status;
-  const tyres =
-    tyresRaw?.ok && tyresRaw.data
-      ? pickFrontRearTyreSizes(tyresRaw.data)
-      : { tyre_size_front: null, tyre_size_rear: null };
-
   return NextResponse.json(
     {
       ok: dvla.ok,
-      dvla: dvla.data, // keep DVLA full for make/model/colour/etc
-      tyres,           // only the two fields you want
+      dvla: dvla.data,       // full DVLA payload
+      tyres: tyresRaw?.data, // full OneAuto response
     },
     { status }
   );
