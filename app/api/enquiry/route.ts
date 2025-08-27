@@ -1,23 +1,35 @@
 // app/api/enquiry/route.ts
 import { NextResponse } from "next/server";
 
-function withCors(body: any, status = 200) {
+// --- Allowed origins --------------------------------------------------------
+const allowedOrigins = [
+  "https://ossettyres.co.uk",
+  "https://www.ossettyres.co.uk",
+];
+
+// --- CORS helper ------------------------------------------------------------
+function withCors(body: any, status = 200, origin?: string | null) {
+  const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
   return NextResponse.json(body, {
     status,
     headers: {
-      "Access-Control-Allow-Origin": "https://ossettyres.co.uk",
+      "Access-Control-Allow-Origin": useOrigin!,
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
   });
 }
 
+// --- POST handler -----------------------------------------------------------
 export async function POST(req: Request) {
   try {
+    const origin = req.headers.get("origin");
+
     if (!process.env.WEB3FORMS_KEY) {
       return withCors(
         { success: false, message: "Email key not configured" },
-        500
+        500,
+        origin
       );
     }
 
@@ -27,12 +39,13 @@ export async function POST(req: Request) {
 
     // Simple validation + honeypot
     if (honey) {
-      return withCors({ success: true, message: "ok" }); // silently drop bots
+      return withCors({ success: true, message: "ok" }, 200, origin); // silently drop bots
     }
     if (!from_name || !subject || !reply_to || !message) {
       return withCors(
         { success: false, message: "Missing fields" },
-        400
+        400,
+        origin
       );
     }
 
@@ -53,24 +66,27 @@ export async function POST(req: Request) {
     });
 
     const data = await resp.json().catch(() => ({}));
-    return withCors(data, resp.status);
+    return withCors(data, resp.status, origin);
   } catch (e: any) {
     return withCors(
       { success: false, message: "Server error", detail: e?.message },
-      500
+      500,
+      req.headers.get("origin")
     );
   }
 }
 
-// Handle CORS preflight
-export async function OPTIONS() {
+// --- OPTIONS (CORS preflight) ----------------------------------------------
+export async function OPTIONS(req: Request) {
+  const origin = req.headers.get("origin");
+  const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
+
   return new NextResponse(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "https://ossettyres.co.uk",
+      "Access-Control-Allow-Origin": useOrigin!,
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
   });
 }
-
