@@ -85,11 +85,17 @@ async function fetchOETyresRaw(vrm: string) {
 }
 
 // --- CORS helper ------------------------------------------------------------
-function withCors(body: any, status = 200) {
+const allowedOrigins = [
+  "https://ossettyres.co.uk",
+  "https://www.ossettyres.co.uk",
+];
+
+function withCors(body: any, status = 200, origin?: string | null) {
+  const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
   return NextResponse.json(body, {
     status,
     headers: {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": useOrigin!,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
@@ -100,9 +106,11 @@ function withCors(body: any, status = 200) {
 function buildResponse({
   dvla,
   tyresRaw,
+  origin,
 }: {
   dvla: { ok: boolean; status: number; data: any };
   tyresRaw?: { ok: boolean; status: number; data: any } | null;
+  origin?: string | null;
 }) {
   const status = dvla.ok ? 200 : dvla.status;
   return withCors(
@@ -111,7 +119,8 @@ function buildResponse({
       dvla: dvla.data,       // full DVLA payload
       tyres: tyresRaw?.data, // full OneAuto response
     },
-    status
+    status,
+    origin
   );
 }
 
@@ -120,51 +129,55 @@ function buildResponse({
 // POST body: { registrationNumber: "AB12CDE" }
 export async function POST(req: Request) {
   try {
+    const origin = req.headers.get("origin");
     const ip = getClientIp(req);
     const body = await req.json().catch(() => ({} as any));
     const norm = normaliseAndValidateVRM(body?.registrationNumber ?? null);
-    if (!norm.ok) return withCors({ error: norm.error }, 400);
+    if (!norm.ok) return withCors({ error: norm.error }, 400, origin);
 
     const cd = simpleCooldown(ip, norm.vrm);
     if (cd.blocked) return rateLimitResponse(cd.retryAfterSec, cd.which!);
 
     const dvla = await fetchDvla(norm.vrm);
-    if (!dvla.ok) return buildResponse({ dvla, tyresRaw: null });
+    if (!dvla.ok) return buildResponse({ dvla, tyresRaw: null, origin });
 
     const tyresRaw = await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }));
-    return buildResponse({ dvla, tyresRaw });
+    return buildResponse({ dvla, tyresRaw, origin });
   } catch (err: any) {
-    return withCors({ error: "Server error", detail: err?.message }, 500);
+    return withCors({ error: "Server error", detail: err?.message }, 500, req.headers.get("origin"));
   }
 }
 
 // GET /api/dvla?reg=AB12CDE
 export async function GET(req: Request) {
   try {
+    const origin = req.headers.get("origin");
     const ip = getClientIp(req);
     const { searchParams } = new URL(req.url);
     const norm = normaliseAndValidateVRM(searchParams.get("reg"));
-    if (!norm.ok) return withCors({ error: norm.error }, 400);
+    if (!norm.ok) return withCors({ error: norm.error }, 400, origin);
 
     const cd = simpleCooldown(ip, norm.vrm);
     if (cd.blocked) return rateLimitResponse(cd.retryAfterSec, cd.which!);
 
     const dvla = await fetchDvla(norm.vrm);
-    if (!dvla.ok) return buildResponse({ dvla, tyresRaw: null });
+    if (!dvla.ok) return buildResponse({ dvla, tyresRaw: null, origin });
 
     const tyresRaw = await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }));
-    return buildResponse({ dvla, tyresRaw });
+    return buildResponse({ dvla, tyresRaw, origin });
   } catch (err: any) {
-    return withCors({ error: "Server error", detail: err?.message }, 500);
+    return withCors({ error: "Server error", detail: err?.message }, 500, req.headers.get("origin"));
   }
 }
 
 // --- Handle OPTIONS (CORS preflight) ---------------------------------------
-export async function OPTIONS() {
+export async function OPTIONS(req: Request) {
+  const origin = req.headers.get("origin");
+  const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
   return new NextResponse(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": useOrigin!,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
     },
