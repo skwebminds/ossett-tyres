@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   try {
     const origin = req.headers.get("origin");
 
-    if (!process.env.WEB3FORMS_KEY) {
+    if (!process.env.WEB3FORMS_KEY_OSSETT) {
       return withCors(
         { success: false, message: "Email key not configured" },
         500,
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
         Accept: "application/json",
       },
       body: JSON.stringify({
-        access_key: process.env.WEB3FORMS_KEY,
+        access_key: process.env.WEB3FORMS_KEY_OSSETT,
         from_name,
         subject,
         reply_to,
@@ -90,3 +90,4 @@ export async function OPTIONS(req: Request) {
     },
   });
 }
+
