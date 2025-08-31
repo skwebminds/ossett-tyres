@@ -1,4 +1,7 @@
 // app/api/enquiry/route.ts
+
+export const runtime = "nodejs"; //forcing route to run in full Node.js runtime, where googleapis works
+
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
@@ -129,3 +132,4 @@ export async function OPTIONS(req: Request) {
     },
   });
 }
+
