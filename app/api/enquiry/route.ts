@@ -30,7 +30,8 @@ async function appendToSheet(row: any[]) {
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
 
   if (!email || !key || !spreadsheetId) {
-    throw new Error("Sheets not configured: missing GOOGLE_SA_EMAIL/GOOGLE_SA_PRIVATE_KEY/GOOGLE_SHEETS_ID");
+    console.warn("Sheets not configured: missing GOOGLE_SA_EMAIL/GOOGLE_SA_PRIVATE_KEY/GOOGLE_SHEETS_ID");
+    return;
   }
 
   const auth = new google.auth.JWT({
@@ -108,21 +109,16 @@ export async function POST(req: Request) {
       submittedAt || new Date().toISOString()
     ];
 
-    // ✅ DEBUG MODE: await append to see errors
-    try {
-      await appendToSheet(row);
-    } catch (e: any) {
-      console.error("Sheets append error:", e);
-      return withCors(
-        { success: false, message: "Sheets append failed", error: String(e?.message || e) },
-        500,
-        origin
-      );
-    }
+    // Non-blocking append (logs error in Vercel if Sheets fails)
+    appendToSheet(row).catch(err => console.error("Sheets append error:", err));
 
     return withCors(data, resp.status, origin);
   } catch (e: any) {
-    return withCors({ success: false, message: "Server error", detail: e?.message }, 500, req.headers.get("origin"));
+    return withCors(
+      { success: false, message: "Server error", detail: e?.message },
+      500,
+      req.headers.get("origin")
+    );
   }
 }
 
