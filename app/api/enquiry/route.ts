@@ -56,63 +56,38 @@ export async function POST(req: Request) {
   try {
     const origin = req.headers.get("origin");
 
-    if (!process.env.WEB3FORMS_KEY) {
-      return withCors({ success: false, message: "Email key not configured" }, 500, origin);
-    }
-
     const body = await req.json().catch(() => ({}));
     const {
-      from_name, subject, reply_to, message, honey,
+      customerName, reply_to, phone,
       reg, make, colour, year,
-      chosenFrontTyre, chosenRearTyre, frontQty, rearQty,
-      tierPref, brandPref, customerName, phone, submittedAt
+      chosenFrontTyre, frontQty,
+      chosenRearTyre, rearQty,
+      tierPref, brandPref,
+      submittedAt
     } = body || {};
 
-    if (honey) return withCors({ success: true, message: "ok" }, 200, origin);
-    if (!from_name || !subject || !reply_to || !message) {
-      return withCors({ success: false, message: "Missing fields" }, 400, origin);
-    }
-
-    // Forward email via Web3Forms
-    const resp = await fetch("https://api.web3forms.com/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        access_key: process.env.WEB3FORMS_KEY,
-        from_name,
-        subject,
-        reply_to,
-        message,
-        reg, make, colour, year,
-        chosenFrontTyre, chosenRearTyre, frontQty, rearQty,
-        tierPref, brandPref, customerName, phone, submittedAt
-      }),
-    });
-
-    const data = await resp.json().catch(() => ({}));
-
-    // Build row for Sheets (match header order)
+    // Build row for Sheets (match your headers)
     const row = [
-      customerName || "",
-      reply_to || "",
-      phone || "",
-      reg || "",
-      make || "",
-      colour || "",
-      year || "",
-      chosenFrontTyre || "",
-      String(frontQty ?? ""),
-      chosenRearTyre || "",
-      String(rearQty ?? ""),
-      tierPref || "",
-      brandPref || "",
-      submittedAt || new Date().toISOString()
+      customerName || "",       // A: Customer Name
+      reply_to || "",           // B: Customer Email
+      phone || "",              // C: Phone
+      reg || "",                // D: Reg
+      make || "",               // E: Make
+      colour || "",             // F: Colour
+      year || "",               // G: Year
+      chosenFrontTyre || "",    // H: Front Tyre
+      String(frontQty ?? ""),   // I: Front Qty
+      chosenRearTyre || "",     // J: Rear Tyre
+      String(rearQty ?? ""),    // K: Rear Qty
+      tierPref || "",           // L: Budget Range
+      brandPref || "",          // M: Preferred Brand
+      submittedAt || new Date().toISOString() // N: Timestamp
     ];
 
-    // Non-blocking append (logs error in Vercel if Sheets fails)
+    // Append asynchronously to Google Sheets
     appendToSheet(row).catch(err => console.error("Sheets append error:", err));
 
-    return withCors(data, resp.status, origin);
+    return withCors({ success: true, message: "Order logged to Google Sheets" }, 200, origin);
   } catch (e: any) {
     return withCors(
       { success: false, message: "Server error", detail: e?.message },
