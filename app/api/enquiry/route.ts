@@ -4,13 +4,12 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
-// --- Allowed origins --------------------------------------------------------
 const allowedOrigins = [
   "https://ossettyres.co.uk",
   "https://www.ossettyres.co.uk",
 ];
 
-// --- CORS helper ------------------------------------------------------------
+// --- CORS helper ---
 function withCors(body: any, status = 200, origin?: string | null) {
   const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
   return NextResponse.json(body, {
@@ -23,14 +22,14 @@ function withCors(body: any, status = 200, origin?: string | null) {
   });
 }
 
-// --- Google Sheets helper ---------------------------------------------------
+// --- Google Sheets helper ---
 async function appendToSheet(row: any[]) {
   const email = process.env.GOOGLE_SA_EMAIL;
   const key = process.env.GOOGLE_SA_PRIVATE_KEY;
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
 
   if (!email || !key || !spreadsheetId) {
-    console.warn("Sheets not configured: missing GOOGLE_SA_EMAIL/GOOGLE_SA_PRIVATE_KEY/GOOGLE_SHEETS_ID");
+    console.warn("Sheets not configured");
     return;
   }
 
@@ -51,67 +50,75 @@ async function appendToSheet(row: any[]) {
   });
 }
 
-// --- POST handler -----------------------------------------------------------
+// --- POST handler ---
 export async function POST(req: Request) {
   try {
     const origin = req.headers.get("origin");
-    const body = await req.json().catch(() => ({}));
 
-    const {
-      from_name, subject, reply_to, message, // <-- email fields (frontend still sends them)
-      customerName, phone,
-      reg, make, colour, year,
-      chosenFrontTyre, frontQty,
-      chosenRearTyre, rearQty,
-      tierPref, brandPref,
-      submittedAt
-    } = body || {};
-
-    // 1) Forward to Web3Forms for email
-    let emailResponse: any = {};
-    try {
-      const resp = await fetch("https://api.web3forms.com/submit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          access_key: process.env.WEB3FORMS_KEY,
-          from_name,
-          subject,
-          reply_to,
-          message,
-        }),
-      });
-      emailResponse = await resp.json().catch(() => ({}));
-    } catch (err) {
-      console.error("Web3Forms error:", err);
+    if (!process.env.WEB3FORMS_KEY) {
+      return withCors({ success: false, message: "Email key not configured" }, 500, origin);
     }
 
-    // 2) Append to Google Sheets
+    const body = await req.json().catch(() => ({}));
+    const {
+      from_name, subject, reply_to, message, honey,
+      reg, make, colour, year,
+      chosenFrontTyre, chosenRearTyre, frontQty, rearQty,
+      tierPref, brandPref, customerName, phone, submittedAt
+    } = body || {};
+
+    if (honey) return withCors({ success: true, message: "ok" }, 200, origin);
+    if (!from_name || !subject || !reply_to || !message) {
+      return withCors({ success: false, message: "Missing fields" }, 400, origin);
+    }
+
+    // --- 1. Send email via Web3Forms ---
+    const resp = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        access_key: process.env.WEB3FORMS_KEY,
+        from_name,
+        subject,
+        reply_to,
+        message
+      }),
+    });
+
+    const emailResult = await resp.json().catch(() => ({}));
+
+    if (!resp.ok || !emailResult?.success) {
+      console.error("Web3Forms error:", emailResult);
+      return withCors(
+        { success: false, message: "Failed to send email", detail: emailResult },
+        resp.status,
+        origin
+      );
+    }
+
+    // --- 2. Append to Google Sheets ---
     const row = [
-      customerName || "",       // A: Customer Name
-      reply_to || "",           // B: Customer Email
-      phone || "",              // C: Phone
-      reg || "",                // D: Reg
-      make || "",               // E: Make
-      colour || "",             // F: Colour
-      year || "",               // G: Year
-      chosenFrontTyre || "",    // H: Front Tyre
-      String(frontQty ?? ""),   // I: Front Qty
-      chosenRearTyre || "",     // J: Rear Tyre
-      String(rearQty ?? ""),    // K: Rear Qty
-      tierPref || "",           // L: Budget Range
-      brandPref || "",          // M: Preferred Brand
-      submittedAt || new Date().toISOString() // N: Timestamp
+      customerName || "",
+      reply_to || "",
+      phone || "",
+      reg || "",
+      make || "",
+      colour || "",
+      year || "",
+      chosenFrontTyre || "",
+      String(frontQty ?? ""),
+      chosenRearTyre || "",
+      String(rearQty ?? ""),
+      tierPref || "",
+      brandPref || "",
+      submittedAt || new Date().toISOString()
     ];
 
     appendToSheet(row).catch(err => console.error("Sheets append error:", err));
 
-    // 3) Return combined response
+    // Final response
     return withCors(
-      { success: true, message: "Order processed", emailResponse },
+      { success: true, message: "Order processed", emailResult },
       200,
       origin
     );
@@ -124,11 +131,10 @@ export async function POST(req: Request) {
   }
 }
 
-// --- OPTIONS (CORS preflight) ----------------------------------------------
+// --- OPTIONS handler ---
 export async function OPTIONS(req: Request) {
   const origin = req.headers.get("origin");
   const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
-
   return new NextResponse(null, {
     status: 204,
     headers: {
