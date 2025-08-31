@@ -55,10 +55,11 @@ async function appendToSheet(row: any[]) {
 export async function POST(req: Request) {
   try {
     const origin = req.headers.get("origin");
-
     const body = await req.json().catch(() => ({}));
+
     const {
-      customerName, reply_to, phone,
+      from_name, subject, reply_to, message, // <-- email fields (frontend still sends them)
+      customerName, phone,
       reg, make, colour, year,
       chosenFrontTyre, frontQty,
       chosenRearTyre, rearQty,
@@ -66,7 +67,29 @@ export async function POST(req: Request) {
       submittedAt
     } = body || {};
 
-    // Build row for Sheets (match your headers)
+    // 1) Forward to Web3Forms for email
+    let emailResponse: any = {};
+    try {
+      const resp = await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          access_key: process.env.WEB3FORMS_KEY,
+          from_name,
+          subject,
+          reply_to,
+          message,
+        }),
+      });
+      emailResponse = await resp.json().catch(() => ({}));
+    } catch (err) {
+      console.error("Web3Forms error:", err);
+    }
+
+    // 2) Append to Google Sheets
     const row = [
       customerName || "",       // A: Customer Name
       reply_to || "",           // B: Customer Email
@@ -84,10 +107,14 @@ export async function POST(req: Request) {
       submittedAt || new Date().toISOString() // N: Timestamp
     ];
 
-    // Append asynchronously to Google Sheets
     appendToSheet(row).catch(err => console.error("Sheets append error:", err));
 
-    return withCors({ success: true, message: "Order logged to Google Sheets" }, 200, origin);
+    // 3) Return combined response
+    return withCors(
+      { success: true, message: "Order processed", emailResponse },
+      200,
+      origin
+    );
   } catch (e: any) {
     return withCors(
       { success: false, message: "Server error", detail: e?.message },
