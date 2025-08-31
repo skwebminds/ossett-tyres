@@ -1,6 +1,5 @@
 // app/api/enquiry/route.ts
-
-export const runtime = "nodejs"; //forcing route to run in full Node.js runtime, where googleapis works
+export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
@@ -31,8 +30,7 @@ async function appendToSheet(row: any[]) {
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
 
   if (!email || !key || !spreadsheetId) {
-    console.warn("Sheets not configured: missing GOOGLE_SA_EMAIL/GOOGLE_SA_PRIVATE_KEY/GOOGLE_SHEETS_ID");
-    return;
+    throw new Error("Sheets not configured: missing GOOGLE_SA_EMAIL/GOOGLE_SA_PRIVATE_KEY/GOOGLE_SHEETS_ID");
   }
 
   const auth = new google.auth.JWT({
@@ -92,7 +90,7 @@ export async function POST(req: Request) {
 
     const data = await resp.json().catch(() => ({}));
 
-    // Build row for Sheets (match header order above)
+    // Build row for Sheets (match header order)
     const row = [
       customerName || "",
       reply_to || "",
@@ -110,7 +108,17 @@ export async function POST(req: Request) {
       submittedAt || new Date().toISOString()
     ];
 
-    appendToSheet(row).catch(err => console.error("Sheets append error:", err));
+    // ✅ DEBUG MODE: await append to see errors
+    try {
+      await appendToSheet(row);
+    } catch (e: any) {
+      console.error("Sheets append error:", e);
+      return withCors(
+        { success: false, message: "Sheets append failed", error: String(e?.message || e) },
+        500,
+        origin
+      );
+    }
 
     return withCors(data, resp.status, origin);
   } catch (e: any) {
@@ -132,4 +140,3 @@ export async function OPTIONS(req: Request) {
     },
   });
 }
-
