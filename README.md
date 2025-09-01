@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ossett Tyres – Vehicle Registration & Tyre Ordering System
 
-## Getting Started
+This project powers [ossettyres.co.uk](https://ossettyres.co.uk), a client website for a UK tyre garage.  
+It integrates DVLA and OE Tyre Fitment APIs to provide a **registration lookup system** and automate the **tyre ordering process**.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🚗 Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Vehicle Registration Lookup**  
+  - Fetches vehicle details via DVLA API  
+  - Retrieves OE tyre fitment data  
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Tyre Ordering Widget**  
+  - Frontend form for customers to select tyre sizes, quantity, brand, and budget range  
+  - Manual override for tyre sizes if not found in database  
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **Order Automation**  
+  - Orders are automatically logged into **Google Sheets** using the Google Sheets API & a GCP Service Account  
+  - Customer order details are emailed to the garage using **Web3Forms API**  
+  - Serverless backend deployed on **Vercel**  
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 🛠️ Tech Stack
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Frontend**:  
+  - HTML, CSS, JavaScript  
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Backend**:  
+  - Next.js (API Routes on Vercel)  
+  - Node.js runtime  
 
-## Deploy on Vercel
+- **Integrations**:  
+  - DVLA Vehicle Enquiry API  
+  - OE Tyre Fitment API  
+  - Google Sheets API (via Service Account + JWT auth)  
+  - Web3Forms API (email automation)  
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Hosting**:  
+  - Vercel (serverless backend + static frontend)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 📊 Business Impact
+
+- Handles **50+ monthly tyre enquiries** automatically  
+- Eliminates manual logging by directly appending orders into Google Sheets  
+- Reduced admin workload and sped up customer response times  
+- Boosted garage’s digital presence with a reliable, automated order pipeline  
+
+---
+
+## 🚀 Setup & Installation
+
+1. Clone the repo  
+   - ```bash
+   - git clone https://github.com/YOUR_USERNAME/ossett-tyres.git
+   - cd ossett-tyres
+
+
+2. Install dependencies:
+
+   - npm install
+
+3. Create a .env.local file with your API keys:
+
+  - DVLA_API_KEY=your_dvla_key
+  - WEB3FORMS_KEY=your_web3forms_key
+  - GOOGLE_SA_EMAIL=service_account_email@project.iam.gserviceaccount.com
+  - GOOGLE_SA_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+  - GOOGLE_SHEETS_ID=your_google_sheets_id
+
+4. Deploy locally:
+
+   - npm run dev
+
+5. Deploy to Vercel
+
+   - Push to GitHub
+   - Connect repo to Vercel
+   - Add the same environment variables in Vercel dashboard
