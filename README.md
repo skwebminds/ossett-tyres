@@ -55,13 +55,13 @@ It integrates DVLA and OE Tyre Fitment APIs to provide a **registration lookup s
 
 1. Clone the repo  
     ```bash
-   - git clone https://github.com/YOUR_USERNAME/ossett-tyres.git
-   - cd ossett-tyres
+     git clone https://github.com/YOUR_USERNAME/ossett-tyres.git
+     cd ossett-tyres
 
 
 2. Install dependencies:
-
-   - npm install
+     ```bash
+     npm install
 
 3. Create a .env.local file with your API keys:
 
