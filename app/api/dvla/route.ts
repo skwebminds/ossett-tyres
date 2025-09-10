@@ -1,5 +1,5 @@
-// app/api/dvla/route.ts
 import { NextResponse } from "next/server";
+import { google } from "googleapis";
 
 // --- Upstream URLs ----------------------------------------------------------
 const DVLA_URL =
@@ -49,6 +49,31 @@ function getClientIp(req: Request) {
   return "unknown";
 }
 
+// --- Google Sheets logging --------------------------------------------------
+async function appendApiLog(row: any[]) {
+  const email = process.env.GOOGLE_SA_EMAIL;
+  const key = process.env.GOOGLE_SA_PRIVATE_KEY;
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+
+  if (!email || !key || !spreadsheetId) return;
+
+  const auth = new google.auth.JWT({
+    email,
+    key: key.replace(/\\n/g, "\n"),
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+
+  const sheets = google.sheets({ version: "v4", auth });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `api logging tracker!A:Z`, // 👈 logs into your tracker tab
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [row] },
+  });
+}
+
 // --- VRM validation ---------------------------------------------------------
 function normaliseAndValidateVRM(input: string | null) {
   const vrm = (input || "").trim().toUpperCase();
@@ -88,7 +113,7 @@ async function fetchDvla(reg: string) {
   return { ok: resp.ok, status: resp.status, data };
 }
 
-// --- Upstream: OneAuto (raw, no filtering) ---------------------------------
+// --- Upstream: OneAuto ------------------------------------------------------
 async function fetchOETyresRaw(vrm: string) {
   if (!process.env.ONEAUTO_API_KEY) {
     return {
@@ -149,8 +174,8 @@ function buildResponse({
   return withCors(
     {
       ok: dvla.ok,
-      dvla: dvla.data, // full DVLA payload
-      tyres: tyresRaw?.data, // full OneAuto response
+      dvla: dvla.data,
+      tyres: tyresRaw?.data,
     },
     status,
     origin
@@ -159,85 +184,83 @@ function buildResponse({
 
 // --- Handlers ---------------------------------------------------------------
 
-// POST body: { registrationNumber: "AB12CDE" }
+// POST
 export async function POST(req: Request) {
+  const origin = req.headers.get("origin");
+  const ip = getClientIp(req);
+  const userAgent = req.headers.get("user-agent") || "unknown";
+  const submittedAtUK = new Date().toLocaleString("en-GB", {
+    timeZone: "Europe/London",
+    hour12: false,
+  });
+
   try {
-    const origin = req.headers.get("origin");
-    const ip = getClientIp(req);
-    const userAgent = req.headers.get("user-agent") || "unknown";
     const body = await req.json().catch(() => ({} as any));
     const norm = normaliseAndValidateVRM(body?.registrationNumber ?? null);
-    if (!norm.ok) return withCors({ error: norm.error }, 400, origin);
-
-    // 🔎 Log submission to Vercel logs
-    console.log("🔎 DVLA POST Lookup:", {
-      reg: norm.vrm,
-      ip,
-      userAgent,
-      time: new Date().toISOString(),
-    });
+    if (!norm.ok) {
+      await appendApiLog([submittedAtUK, "/api/dvla", body?.registrationNumber || "", ip, userAgent, "POST", 400, "Invalid VRM"]);
+      return withCors({ error: norm.error }, 400, origin);
+    }
 
     const cd = simpleCooldown(ip, norm.vrm);
-    if (cd.blocked) return rateLimitResponse(cd.retryAfterSec, cd.which!);
+    if (cd.blocked) {
+      await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "POST", 429, "Rate limited"]);
+      return rateLimitResponse(cd.retryAfterSec, cd.which!);
+    }
 
     const dvla = await fetchDvla(norm.vrm);
-    if (!dvla.ok) return buildResponse({ dvla, tyresRaw: null, origin });
+    const tyresRaw = dvla.ok
+      ? await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }))
+      : null;
 
-    const tyresRaw = await fetchOETyresRaw(norm.vrm).catch(() => ({
-      ok: false,
-      status: 500,
-      data: null,
-    }));
+    await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "POST", dvla.status, dvla.ok ? "Success" : "Failed"]);
+
     return buildResponse({ dvla, tyresRaw, origin });
   } catch (err: any) {
-    return withCors(
-      { error: "Server error", detail: err?.message },
-      500,
-      req.headers.get("origin")
-    );
+    await appendApiLog([submittedAtUK, "/api/dvla", "", ip, userAgent, "POST", 500, "Server error"]);
+    return withCors({ error: "Server error", detail: err?.message }, 500, origin);
   }
 }
 
-// GET /api/dvla?reg=AB12CDE
+// GET
 export async function GET(req: Request) {
+  const origin = req.headers.get("origin");
+  const ip = getClientIp(req);
+  const userAgent = req.headers.get("user-agent") || "unknown";
+  const submittedAtUK = new Date().toLocaleString("en-GB", {
+    timeZone: "Europe/London",
+    hour12: false,
+  });
+
   try {
-    const origin = req.headers.get("origin");
-    const ip = getClientIp(req);
-    const userAgent = req.headers.get("user-agent") || "unknown";
     const { searchParams } = new URL(req.url);
     const norm = normaliseAndValidateVRM(searchParams.get("reg"));
-    if (!norm.ok) return withCors({ error: norm.error }, 400, origin);
-
-    // 🔎 Log submission to Vercel logs
-    console.log("🔎 DVLA GET Lookup:", {
-      reg: norm.vrm,
-      ip,
-      userAgent,
-      time: new Date().toISOString(),
-    });
+    if (!norm.ok) {
+      await appendApiLog([submittedAtUK, "/api/dvla", searchParams.get("reg") || "", ip, userAgent, "GET", 400, "Invalid VRM"]);
+      return withCors({ error: norm.error }, 400, origin);
+    }
 
     const cd = simpleCooldown(ip, norm.vrm);
-    if (cd.blocked) return rateLimitResponse(cd.retryAfterSec, cd.which!);
+    if (cd.blocked) {
+      await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "GET", 429, "Rate limited"]);
+      return rateLimitResponse(cd.retryAfterSec, cd.which!);
+    }
 
     const dvla = await fetchDvla(norm.vrm);
-    if (!dvla.ok) return buildResponse({ dvla, tyresRaw: null, origin });
+    const tyresRaw = dvla.ok
+      ? await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }))
+      : null;
 
-    const tyresRaw = await fetchOETyresRaw(norm.vrm).catch(() => ({
-      ok: false,
-      status: 500,
-      data: null,
-    }));
+    await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "GET", dvla.status, dvla.ok ? "Success" : "Failed"]);
+
     return buildResponse({ dvla, tyresRaw, origin });
   } catch (err: any) {
-    return withCors(
-      { error: "Server error", detail: err?.message },
-      500,
-      req.headers.get("origin")
-    );
+    await appendApiLog([submittedAtUK, "/api/dvla", "", ip, userAgent, "GET", 500, "Server error"]);
+    return withCors({ error: "Server error", detail: err?.message }, 500, origin);
   }
 }
 
-// --- Handle OPTIONS (CORS preflight) ---------------------------------------
+// --- OPTIONS ---------------------------------------------------------------
 export async function OPTIONS(req: Request) {
   const origin = req.headers.get("origin");
   const useOrigin = allowedOrigins.includes(origin || "")
