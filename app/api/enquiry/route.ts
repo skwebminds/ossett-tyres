@@ -1,4 +1,3 @@
-// app/api/enquiry/route.ts
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -56,7 +55,6 @@ export async function POST(req: Request) {
     const origin = req.headers.get("origin");
     const ip = req.headers.get("x-forwarded-for") || "unknown";
     const userAgent = req.headers.get("user-agent") || "unknown";
-    const submittedAt = new Date().toISOString();
 
     if (!process.env.WEB3FORMS_KEY) {
       return withCors({ success: false, message: "Email key not configured" }, 500, origin);
@@ -92,6 +90,11 @@ export async function POST(req: Request) {
     const data = await resp.json().catch(() => ({}));
 
     // --- Build row for Sheets ---
+    const submittedAtUK = new Date().toLocaleString("en-GB", {
+      timeZone: "Europe/London",
+      hour12: false,
+    });
+
     const row = [
       customerName || "",
       reply_to || "",
@@ -106,9 +109,9 @@ export async function POST(req: Request) {
       String(rearQty ?? ""),
       tierPref || "",
       brandPref || "",
-      submittedAt,  // ✅ standardised timestamp
-      ip,           // ✅ client IP
-      userAgent     // ✅ device/browser info
+      submittedAtUK, // ✅ UK timestamp
+      ip,
+      userAgent,
     ];
 
     // ✅ Write immediately to Sheets
