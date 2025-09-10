@@ -109,6 +109,7 @@ export async function POST(req: Request) {
       String(rearQty ?? ""),
       tierPref || "",
       brandPref || "",
+      "", 
       submittedAtUK, // ✅ UK timestamp
       ip,
       userAgent,
@@ -142,3 +143,4 @@ export async function OPTIONS(req: Request) {
     },
   });
 }
+
