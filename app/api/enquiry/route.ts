@@ -54,6 +54,9 @@ async function appendToSheet(row: any[]) {
 export async function POST(req: Request) {
   try {
     const origin = req.headers.get("origin");
+    const ip = req.headers.get("x-forwarded-for") || "unknown";
+    const userAgent = req.headers.get("user-agent") || "unknown";
+    const submittedAt = new Date().toISOString();
 
     if (!process.env.WEB3FORMS_KEY) {
       return withCors({ success: false, message: "Email key not configured" }, 500, origin);
@@ -64,7 +67,7 @@ export async function POST(req: Request) {
       from_name, subject, reply_to, message, honey,
       reg, make, colour, year,
       chosenFrontTyre, chosenRearTyre, frontQty, rearQty,
-      tierPref, brandPref, customerName, phone, submittedAt
+      tierPref, brandPref, customerName, phone,
     } = body || {};
 
     // Honeypot / validation
@@ -103,10 +106,12 @@ export async function POST(req: Request) {
       String(rearQty ?? ""),
       tierPref || "",
       brandPref || "",
-      submittedAt || new Date().toISOString()
+      submittedAt,  // ✅ standardised timestamp
+      ip,           // ✅ client IP
+      userAgent     // ✅ device/browser info
     ];
 
-    // ✅ Await Sheets write (so it happens immediately)
+    // ✅ Write immediately to Sheets
     await appendToSheet(row);
 
     return withCors(data, resp.status, origin);
