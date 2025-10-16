@@ -196,15 +196,39 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => ({} as any));
+    const customerName = body?.customerName || "unknown";
+    const customerPhone = body?.customerPhone || "unknown";
     const norm = normaliseAndValidateVRM(body?.registrationNumber ?? null);
     if (!norm.ok) {
-      await appendApiLog([submittedAtUK, "/api/dvla", body?.registrationNumber || "", ip, userAgent, "POST", 400, "Invalid VRM"]);
+      await appendApiLog([
+        submittedAtUK,
+        "/api/dvla",
+        body?.registrationNumber || "",
+        ip,
+        userAgent,
+        "POST",
+        400,
+        "Invalid VRM",
+        customerName,
+        customerPhone,
+      ]);
       return withCors({ error: norm.error }, 400, origin);
     }
 
     const cd = simpleCooldown(ip, norm.vrm);
     if (cd.blocked) {
-      await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "POST", 429, "Rate limited"]);
+      await appendApiLog([
+        submittedAtUK,
+        "/api/dvla",
+        norm.vrm,
+        ip,
+        userAgent,
+        "POST",
+        429,
+        "Rate limited",
+        customerName,
+        customerPhone,
+      ]);
       return rateLimitResponse(cd.retryAfterSec, cd.which!);
     }
 
@@ -213,11 +237,55 @@ export async function POST(req: Request) {
       ? await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }))
       : null;
 
-    await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "POST", dvla.status, dvla.ok ? "Success" : "Failed"]);
+    // ✅ Log lookup (with name + phone)
+    await appendApiLog([
+      submittedAtUK,
+      "/api/dvla",
+      norm.vrm,
+      ip,
+      userAgent,
+      "POST",
+      dvla.status,
+      dvla.ok ? "Success" : "Failed",
+      customerName,
+      customerPhone,
+    ]);
+
+    // ✅ Optional: send email alert via Web3Forms
+    if (process.env.WEB3FORMS_KEY) {
+      const message = `A new registration lookup occurred:
+
+Reg: ${norm.vrm}
+Name: ${customerName}
+Phone: ${customerPhone}
+IP: ${ip}
+User-Agent: ${userAgent}
+Time (UK): ${submittedAtUK}`;
+
+      await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          access_key: process.env.WEB3FORMS_KEY,
+          from_name: "DVLA Lookup Tracker",
+          subject: `New Reg Lookup – ${norm.vrm}`,
+          message,
+        }),
+      }).catch(() => {});
+    }
 
     return buildResponse({ dvla, tyresRaw, origin });
   } catch (err: any) {
-    await appendApiLog([submittedAtUK, "/api/dvla", "", ip, userAgent, "POST", 500, "Server error"]);
+    await appendApiLog([
+      submittedAtUK,
+      "/api/dvla",
+      "",
+      ip,
+      userAgent,
+      "POST",
+      500,
+      "Server error",
+    ]);
     return withCors({ error: "Server error", detail: err?.message }, 500, origin);
   }
 }
