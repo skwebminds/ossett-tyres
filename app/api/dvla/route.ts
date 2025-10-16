@@ -199,6 +199,7 @@ export async function POST(req: Request) {
     const customerName = body?.customerName || "unknown";
     const customerPhone = body?.customerPhone || "unknown";
     const norm = normaliseAndValidateVRM(body?.registrationNumber ?? null);
+
     if (!norm.ok) {
       await appendApiLog([
         submittedAtUK,
@@ -234,7 +235,11 @@ export async function POST(req: Request) {
 
     const dvla = await fetchDvla(norm.vrm);
     const tyresRaw = dvla.ok
-      ? await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }))
+      ? await fetchOETyresRaw(norm.vrm).catch(() => ({
+          ok: false,
+          status: 500,
+          data: null,
+        }))
       : null;
 
     // ✅ Log lookup (with name + phone)
@@ -251,15 +256,13 @@ export async function POST(req: Request) {
       customerPhone,
     ]);
 
-    // ✅ Optional: send email alert via Web3Forms
+    // ✅ Optional: simplified email alert via Web3Forms
     if (process.env.WEB3FORMS_KEY) {
-      const message = `A new registration lookup occurred:
+      const message = `A customer has searched their registration but not yet placed an order.
 
-Reg: ${norm.vrm}
+Registration: ${norm.vrm}
 Name: ${customerName}
 Phone: ${customerPhone}
-IP: ${ip}
-User-Agent: ${userAgent}
 Time (UK): ${submittedAtUK}`;
 
       await fetch("https://api.web3forms.com/submit", {
@@ -268,7 +271,7 @@ Time (UK): ${submittedAtUK}`;
         body: JSON.stringify({
           access_key: process.env.WEB3FORMS_KEY,
           from_name: "DVLA Lookup Tracker",
-          subject: `New Reg Lookup – ${norm.vrm}`,
+          subject: `Pending Order Lookup – ${norm.vrm}`,
           message,
         }),
       }).catch(() => {});
@@ -304,26 +307,66 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const norm = normaliseAndValidateVRM(searchParams.get("reg"));
     if (!norm.ok) {
-      await appendApiLog([submittedAtUK, "/api/dvla", searchParams.get("reg") || "", ip, userAgent, "GET", 400, "Invalid VRM"]);
+      await appendApiLog([
+        submittedAtUK,
+        "/api/dvla",
+        searchParams.get("reg") || "",
+        ip,
+        userAgent,
+        "GET",
+        400,
+        "Invalid VRM",
+      ]);
       return withCors({ error: norm.error }, 400, origin);
     }
 
     const cd = simpleCooldown(ip, norm.vrm);
     if (cd.blocked) {
-      await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "GET", 429, "Rate limited"]);
+      await appendApiLog([
+        submittedAtUK,
+        "/api/dvla",
+        norm.vrm,
+        ip,
+        userAgent,
+        "GET",
+        429,
+        "Rate limited",
+      ]);
       return rateLimitResponse(cd.retryAfterSec, cd.which!);
     }
 
     const dvla = await fetchDvla(norm.vrm);
     const tyresRaw = dvla.ok
-      ? await fetchOETyresRaw(norm.vrm).catch(() => ({ ok: false, status: 500, data: null }))
+      ? await fetchOETyresRaw(norm.vrm).catch(() => ({
+          ok: false,
+          status: 500,
+          data: null,
+        }))
       : null;
 
-    await appendApiLog([submittedAtUK, "/api/dvla", norm.vrm, ip, userAgent, "GET", dvla.status, dvla.ok ? "Success" : "Failed"]);
+    await appendApiLog([
+      submittedAtUK,
+      "/api/dvla",
+      norm.vrm,
+      ip,
+      userAgent,
+      "GET",
+      dvla.status,
+      dvla.ok ? "Success" : "Failed",
+    ]);
 
     return buildResponse({ dvla, tyresRaw, origin });
   } catch (err: any) {
-    await appendApiLog([submittedAtUK, "/api/dvla", "", ip, userAgent, "GET", 500, "Server error"]);
+    await appendApiLog([
+      submittedAtUK,
+      "/api/dvla",
+      "",
+      ip,
+      userAgent,
+      "GET",
+      500,
+      "Server error",
+    ]);
     return withCors({ error: "Server error", detail: err?.message }, 500, origin);
   }
 }
