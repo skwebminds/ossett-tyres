@@ -117,7 +117,8 @@ export async function POST(req: Request) {
       brandPref,
       customerName,
       phone,
-    } = body || {};
+      ["h-captcha-response"]: hcaptchaToken,
+    } = (body || {}) as any;
 
     // Honeypot / validation
     if (honey) {
@@ -170,6 +171,7 @@ export async function POST(req: Request) {
         subject,
         reply_to,
         message,
+        "h-captcha-response": hcaptchaToken,
       }),
     });
 
