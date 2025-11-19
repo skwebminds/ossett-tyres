@@ -106,7 +106,6 @@ export async function POST(req: Request) {
       brandPref,
       customerName,
       phone,
-      ["h-captcha-response"]: hcaptchaToken,
       skipWeb3Email,
     } = (body || {}) as any;
 
@@ -177,7 +176,6 @@ export async function POST(req: Request) {
           subject,
           reply_to,
           message,
-          "h-captcha-response": hcaptchaToken,
         }),
       });
 
