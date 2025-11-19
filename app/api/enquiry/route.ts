@@ -9,6 +9,34 @@ const allowedOrigins = [
   "https://www.ossettyres.co.uk",
 ];
 
+// --- Simple rate limiting --------------------------------------------------
+type RateEntry = { count: number; windowStart: number };
+const RATE_WINDOW_MS = 60_000; // 1 minute bucket
+const RATE_IP_MAX = 5; // max submissions per IP per minute
+const RATE_EMAIL_MAX = 3; // max submissions per email per minute
+
+const ipRate: Map<string, RateEntry> = new Map();
+const emailRate: Map<string, RateEntry> = new Map();
+
+function hitRateLimiter(
+  key: string | null | undefined,
+  map: Map<string, RateEntry>,
+  limit: number
+) {
+  if (!key) return false;
+  const now = Date.now();
+  const existing = map.get(key);
+  if (!existing || now - existing.windowStart > RATE_WINDOW_MS) {
+    map.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+  existing.count += 1;
+  if (existing.count > limit) {
+    return true;
+  }
+  return false;
+}
+
 // --- CORS helper ------------------------------------------------------------
 function withCors(body: any, status = 200, origin?: string | null) {
   const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
@@ -52,7 +80,8 @@ async function appendToSheet(row: any[]) {
 // --- POST handler -----------------------------------------------------------
 export async function POST(req: Request) {
   const origin = req.headers.get("origin");
-  const ip = req.headers.get("x-forwarded-for") || "unknown";
+  const forwarded = req.headers.get("x-forwarded-for");
+  const ip = forwarded?.split(",")[0].trim() || req.headers.get("x-real-ip")?.trim() || null;
   const userAgent = req.headers.get("user-agent") || "unknown";
   const web3formsKey = process.env.WEB3FORMS_KEY;
   const web3formsFromEmail = process.env.WEB3FORMS_FROM_EMAIL;
@@ -95,10 +124,34 @@ export async function POST(req: Request) {
       return withCors({ success: true, message: "ok" }, 200, origin);
     }
 
+    if (hitRateLimiter(ip, ipRate, RATE_IP_MAX)) {
+      console.warn("Enquiry rate limited by IP", { ip: ip || "unknown" });
+      return withCors(
+        {
+          success: false,
+          message: "Too many enquiries from this IP. Please wait a minute.",
+        },
+        429,
+        origin
+      );
+    }
+
     if (!from_name || !subject || !reply_to || !message) {
       return withCors(
         { success: false, message: "Missing fields" },
         400,
+        origin
+      );
+    }
+
+    if (hitRateLimiter(reply_to.toLowerCase(), emailRate, RATE_EMAIL_MAX)) {
+      console.warn("Enquiry rate limited by email", { reply_to });
+      return withCors(
+        {
+          success: false,
+          message: "Too many enquiries for this email. Please wait a minute.",
+        },
+        429,
         origin
       );
     }
@@ -173,7 +226,7 @@ export async function POST(req: Request) {
       brandPref || "",
       "",
       submittedAtUK,
-      ip,
+      ip || "unknown",
       userAgent,
     ];
 
