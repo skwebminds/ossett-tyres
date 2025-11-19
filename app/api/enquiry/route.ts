@@ -87,17 +87,6 @@ export async function POST(req: Request) {
   const web3formsFromEmail = process.env.WEB3FORMS_FROM_EMAIL;
 
   try {
-    if (!web3formsKey || !web3formsFromEmail) {
-      return withCors(
-        {
-          success: false,
-          message: "Email key or sender not configured",
-        },
-        500,
-        origin
-      );
-    }
-
     const body = await req.json().catch(() => ({}));
     const {
       from_name,
@@ -118,7 +107,21 @@ export async function POST(req: Request) {
       customerName,
       phone,
       ["h-captcha-response"]: hcaptchaToken,
+      skipWeb3Email,
     } = (body || {}) as any;
+
+    const shouldSendEmail = !skipWeb3Email;
+
+    if (shouldSendEmail && (!web3formsKey || !web3formsFromEmail)) {
+      return withCors(
+        {
+          success: false,
+          message: "Email key or sender not configured",
+        },
+        500,
+        origin
+      );
+    }
 
     // Honeypot / validation
     if (honey) {
@@ -158,52 +161,60 @@ export async function POST(req: Request) {
     }
 
     // --- Send email via Web3Forms ---
-    const resp = await fetch("https://api.web3forms.com/submit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        access_key: web3formsKey,
-        from_name,
-        from_email: web3formsFromEmail,
-        subject,
-        reply_to,
-        message,
-        "h-captcha-response": hcaptchaToken,
-      }),
-    });
+    let emailResponseMessage = "Email handled externally";
 
-    let rawWeb3Response = "";
-    let data: any = {};
-    try {
-      rawWeb3Response = await resp.text();
-      data = rawWeb3Response ? JSON.parse(rawWeb3Response) : {};
-    } catch {
-      data = rawWeb3Response ? { raw: rawWeb3Response } : {};
-    }
-
-    // Normalise Web3Forms success
-    const emailSuccess =
-      data?.success === true ||
-      data?.success === "true" ||
-      data?.status === "success";
-
-    if (!resp.ok || !emailSuccess) {
-      console.error("Web3Forms error:", {
-        status: resp.status,
-        data,
-        raw: rawWeb3Response,
-      });
-      return withCors(
-        {
-          success: false,
-          message: data?.message || data?.raw || "Failed to send enquiry via email",
+    if (shouldSendEmail) {
+      const resp = await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
         },
-        resp.ok ? 500 : resp.status,
-        origin
-      );
+        body: JSON.stringify({
+          access_key: web3formsKey,
+          from_name,
+          from_email: web3formsFromEmail,
+          subject,
+          reply_to,
+          message,
+          "h-captcha-response": hcaptchaToken,
+        }),
+      });
+
+      let rawWeb3Response = "";
+      let data: any = {};
+      try {
+        rawWeb3Response = await resp.text();
+        data = rawWeb3Response ? JSON.parse(rawWeb3Response) : {};
+      } catch {
+        data = rawWeb3Response ? { raw: rawWeb3Response } : {};
+      }
+
+      // Normalise Web3Forms success
+      const emailSuccess =
+        data?.success === true ||
+        data?.success === "true" ||
+        data?.status === "success";
+
+      if (!resp.ok || !emailSuccess) {
+        console.error("Web3Forms error:", {
+          status: resp.status,
+          data,
+          raw: rawWeb3Response,
+        });
+        return withCors(
+          {
+            success: false,
+            message: data?.message || data?.raw || "Failed to send enquiry via email",
+          },
+          resp.ok ? 500 : resp.status,
+          origin
+        );
+      }
+
+      emailResponseMessage =
+        data?.message ||
+        "Enquiry sent successfully. We will contact you shortly.";
     }
 
     // --- Build row for Sheets ---
@@ -244,9 +255,7 @@ export async function POST(req: Request) {
     return withCors(
       {
         success: true,
-        message:
-          data?.message ||
-          "Enquiry sent successfully. We will contact you shortly.",
+        message: emailResponseMessage,
       },
       200,
       origin
