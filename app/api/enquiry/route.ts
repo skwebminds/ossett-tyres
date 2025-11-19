@@ -51,33 +51,60 @@ async function appendToSheet(row: any[]) {
 
 // --- POST handler -----------------------------------------------------------
 export async function POST(req: Request) {
-  try {
-    const origin = req.headers.get("origin");
-    const ip = req.headers.get("x-forwarded-for") || "unknown";
-    const userAgent = req.headers.get("user-agent") || "unknown";
+  const origin = req.headers.get("origin");
+  const ip = req.headers.get("x-forwarded-for") || "unknown";
+  const userAgent = req.headers.get("user-agent") || "unknown";
 
+  try {
     if (!process.env.WEB3FORMS_KEY) {
-      return withCors({ success: false, message: "Email key not configured" }, 500, origin);
+      return withCors(
+        { success: false, message: "Email key not configured" },
+        500,
+        origin
+      );
     }
 
     const body = await req.json().catch(() => ({}));
     const {
-      from_name, subject, reply_to, message, honey,
-      reg, make, colour, year,
-      chosenFrontTyre, chosenRearTyre, frontQty, rearQty,
-      tierPref, brandPref, customerName, phone,
+      from_name,
+      subject,
+      reply_to,
+      message,
+      honey,
+      reg,
+      make,
+      colour,
+      year,
+      chosenFrontTyre,
+      chosenRearTyre,
+      frontQty,
+      rearQty,
+      tierPref,
+      brandPref,
+      customerName,
+      phone,
     } = body || {};
 
     // Honeypot / validation
-    if (honey) return withCors({ success: true, message: "ok" }, 200, origin);
+    if (honey) {
+      return withCors({ success: true, message: "ok" }, 200, origin);
+    }
+
     if (!from_name || !subject || !reply_to || !message) {
-      return withCors({ success: false, message: "Missing fields" }, 400, origin);
+      return withCors(
+        { success: false, message: "Missing fields" },
+        400,
+        origin
+      );
     }
 
     // --- Send email via Web3Forms ---
     const resp = await fetch("https://api.web3forms.com/submit", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify({
         access_key: process.env.WEB3FORMS_KEY,
         from_name,
@@ -87,7 +114,28 @@ export async function POST(req: Request) {
       }),
     });
 
-    const data = await resp.json().catch(() => ({}));
+    const data = await resp.json().catch(() => ({} as any));
+
+    // Normalise Web3Forms success
+    const emailSuccess =
+      data?.success === true ||
+      data?.success === "true" ||
+      data?.status === "success";
+
+    if (!resp.ok || !emailSuccess) {
+      console.error("Web3Forms error:", {
+        status: resp.status,
+        data,
+      });
+      return withCors(
+        {
+          success: false,
+          message: data?.message || "Failed to send enquiry via email",
+        },
+        resp.ok ? 500 : resp.status,
+        origin
+      );
+    }
 
     // --- Build row for Sheets ---
     const submittedAtUK = new Date().toLocaleString("en-GB", {
@@ -109,22 +157,41 @@ export async function POST(req: Request) {
       String(rearQty ?? ""),
       tierPref || "",
       brandPref || "",
-      "", 
-      submittedAtUK, // ✅ UK timestamp
+      "",
+      submittedAtUK,
       ip,
       userAgent,
     ];
 
-    // ✅ Write immediately to Sheets
-    await appendToSheet(row);
+    // Try to write to Sheets, but don't break email success if this fails
+    try {
+      await appendToSheet(row);
+    } catch (sheetErr: any) {
+      console.error("Sheet append failed:", sheetErr?.message || sheetErr);
+      // still return success to the frontend, since email was sent
+    }
 
-    return withCors(data, resp.status, origin);
+    // Final normalised response for the widget
+    return withCors(
+      {
+        success: true,
+        message:
+          data?.message ||
+          "Enquiry sent successfully. We will contact you shortly.",
+      },
+      200,
+      origin
+    );
   } catch (e: any) {
     console.error("Server error:", e);
     return withCors(
-      { success: false, message: "Server error", detail: e?.message },
+      {
+        success: false,
+        message: "Server error",
+        detail: e?.message,
+      },
       500,
-      req.headers.get("origin")
+      origin
     );
   }
 }
@@ -143,4 +210,3 @@ export async function OPTIONS(req: Request) {
     },
   });
 }
-
