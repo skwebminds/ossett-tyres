@@ -54,11 +54,16 @@ export async function POST(req: Request) {
   const origin = req.headers.get("origin");
   const ip = req.headers.get("x-forwarded-for") || "unknown";
   const userAgent = req.headers.get("user-agent") || "unknown";
+  const web3formsKey = process.env.WEB3FORMS_KEY;
+  const web3formsFromEmail = process.env.WEB3FORMS_FROM_EMAIL;
 
   try {
-    if (!process.env.WEB3FORMS_KEY) {
+    if (!web3formsKey || !web3formsFromEmail) {
       return withCors(
-        { success: false, message: "Email key not configured" },
+        {
+          success: false,
+          message: "Email key or sender not configured",
+        },
         500,
         origin
       );
@@ -99,23 +104,30 @@ export async function POST(req: Request) {
     }
 
     // --- Send email via Web3Forms ---
-  const resp = await fetch("https://api.web3forms.com/submit", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      access_key: process.env.WEB3FORMS_KEY,
-      from_name,
-      from_email: reply_to,
-      subject,
-      reply_to,
-      message,
-    }),
-  });
+    const resp = await fetch("https://api.web3forms.com/submit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        access_key: web3formsKey,
+        from_name,
+        from_email: web3formsFromEmail,
+        subject,
+        reply_to,
+        message,
+      }),
+    });
 
-    const data = await resp.json().catch(() => ({} as any));
+    let rawWeb3Response = "";
+    let data: any = {};
+    try {
+      rawWeb3Response = await resp.text();
+      data = rawWeb3Response ? JSON.parse(rawWeb3Response) : {};
+    } catch {
+      data = rawWeb3Response ? { raw: rawWeb3Response } : {};
+    }
 
     // Normalise Web3Forms success
     const emailSuccess =
@@ -127,11 +139,12 @@ export async function POST(req: Request) {
       console.error("Web3Forms error:", {
         status: resp.status,
         data,
+        raw: rawWeb3Response,
       });
       return withCors(
         {
           success: false,
-          message: data?.message || "Failed to send enquiry via email",
+          message: data?.message || data?.raw || "Failed to send enquiry via email",
         },
         resp.ok ? 500 : resp.status,
         origin
