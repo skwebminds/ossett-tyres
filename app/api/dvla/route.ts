@@ -257,7 +257,10 @@ export async function POST(req: Request) {
     ]);
 
     // ✅ Optional: simplified email alert via Web3Forms
-    if (process.env.WEB3FORMS_KEY) {
+    const web3formsKey = process.env.WEB3FORMS_KEY;
+    const web3formsFromEmail = process.env.WEB3FORMS_FROM_EMAIL;
+
+    if (web3formsKey && web3formsFromEmail) {
       const message = `A customer has searched their registration but not yet placed an order.
 
 Registration: ${norm.vrm}
@@ -269,12 +272,17 @@ Time (UK): ${submittedAtUK}`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          access_key: process.env.WEB3FORMS_KEY,
+          access_key: web3formsKey,
           from_name: "DVLA Lookup Tracker",
+          from_email: web3formsFromEmail,
           subject: `Pending Order Lookup – ${norm.vrm}`,
           message,
         }),
       }).catch(() => {});
+    } else if (web3formsKey && !web3formsFromEmail) {
+      console.warn(
+        "Web3Forms enabled but WEB3FORMS_FROM_EMAIL is missing; DVLA lookup alert skipped."
+      );
     }
 
     return buildResponse({ dvla, tyresRaw, origin });

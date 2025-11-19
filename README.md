@@ -67,6 +67,7 @@ It integrates DVLA and OE Tyre Fitment APIs to provide a **registration lookup s
 
   - DVLA_API_KEY=your_dvla_key
   - WEB3FORMS_KEY=your_web3forms_key
+  - WEB3FORMS_FROM_EMAIL=verified_sender@example.com
   - GOOGLE_SA_EMAIL=service_account_email@project.iam.gserviceaccount.com
   - GOOGLE_SA_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
   - GOOGLE_SHEETS_ID=your_google_sheets_id

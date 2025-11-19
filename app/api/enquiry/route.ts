@@ -99,20 +99,21 @@ export async function POST(req: Request) {
     }
 
     // --- Send email via Web3Forms ---
-    const resp = await fetch("https://api.web3forms.com/submit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        access_key: process.env.WEB3FORMS_KEY,
-        from_name,
-        subject,
-        reply_to,
-        message,
-      }),
-    });
+  const resp = await fetch("https://api.web3forms.com/submit", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      access_key: process.env.WEB3FORMS_KEY,
+      from_name,
+      from_email: reply_to,
+      subject,
+      reply_to,
+      message,
+    }),
+  });
 
     const data = await resp.json().catch(() => ({} as any));
 
