@@ -1,81 +1,10 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
-
-// --- Allowed origins --------------------------------------------------------
-const allowedOrigins = [
-  "https://ossettyres.co.uk",
-  "https://www.ossettyres.co.uk",
-];
-
-// --- Simple rate limiting --------------------------------------------------
-type RateEntry = { count: number; windowStart: number };
-const RATE_WINDOW_MS = 60_000; // 1 minute bucket
-const RATE_IP_MAX = 5; // max submissions per IP per minute
-const RATE_EMAIL_MAX = 3; // max submissions per email per minute
-
-const ipRate: Map<string, RateEntry> = new Map();
-const emailRate: Map<string, RateEntry> = new Map();
-
-function hitRateLimiter(
-  key: string | null | undefined,
-  map: Map<string, RateEntry>,
-  limit: number
-) {
-  if (!key) return false;
-  const now = Date.now();
-  const existing = map.get(key);
-  if (!existing || now - existing.windowStart > RATE_WINDOW_MS) {
-    map.set(key, { count: 1, windowStart: now });
-    return false;
-  }
-  existing.count += 1;
-  if (existing.count > limit) {
-    return true;
-  }
-  return false;
-}
-
-// --- CORS helper ------------------------------------------------------------
-function withCors(body: any, status = 200, origin?: string | null) {
-  const useOrigin = allowedOrigins.includes(origin || "") ? origin : allowedOrigins[0];
-  return NextResponse.json(body, {
-    status,
-    headers: {
-      "Access-Control-Allow-Origin": useOrigin!,
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    },
-  });
-}
-
-// --- Google Sheets helper ---------------------------------------------------
-async function appendToSheet(row: any[]) {
-  const email = process.env.GOOGLE_SA_EMAIL;
-  const key = process.env.GOOGLE_SA_PRIVATE_KEY;
-  const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
-
-  if (!email || !key || !spreadsheetId) {
-    throw new Error("Sheets not configured: missing GOOGLE_SA_EMAIL / GOOGLE_SA_PRIVATE_KEY / GOOGLE_SHEETS_ID");
-  }
-
-  const auth = new google.auth.JWT({
-    email,
-    key: key.replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-
-  const sheets = google.sheets({ version: "v4", auth });
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `Orders!A:Z`,
-    valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: { values: [row] },
-  });
-}
+import { allowedOrigins, withCors } from "./lib/cors";
+import { sendWeb3Email } from "./lib/email";
+import { appendToSheet } from "./lib/sheets";
+import { RATE_EMAIL_MAX, RATE_IP_MAX, rateLimitEmail, rateLimitIp } from "./lib/rateLimit";
 
 // --- POST handler -----------------------------------------------------------
 export async function POST(req: Request) {
@@ -127,7 +56,7 @@ export async function POST(req: Request) {
       return withCors({ success: true, message: "ok" }, 200, origin);
     }
 
-    if (hitRateLimiter(ip, ipRate, RATE_IP_MAX)) {
+    if (rateLimitIp(ip)) {
       console.warn("Enquiry rate limited by IP", { ip: ip || "unknown" });
       return withCors(
         {
@@ -147,7 +76,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (hitRateLimiter(reply_to.toLowerCase(), emailRate, RATE_EMAIL_MAX)) {
+    if (rateLimitEmail(reply_to.toLowerCase())) {
       console.warn("Enquiry rate limited by email", { reply_to });
       return withCors(
         {
@@ -163,55 +92,35 @@ export async function POST(req: Request) {
     let emailResponseMessage = "Email handled externally";
 
     if (shouldSendEmail) {
-      const resp = await fetch("https://api.web3forms.com/submit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          access_key: web3formsKey,
-          from_name,
-          from_email: web3formsFromEmail,
-          subject,
-          reply_to,
-          message,
-        }),
+      const emailResult = await sendWeb3Email({
+        key: web3formsKey!,
+        fromName: from_name,
+        fromEmail: web3formsFromEmail!,
+        subject,
+        replyTo: reply_to,
+        message,
       });
 
-      let rawWeb3Response = "";
-      let data: any = {};
-      try {
-        rawWeb3Response = await resp.text();
-        data = rawWeb3Response ? JSON.parse(rawWeb3Response) : {};
-      } catch {
-        data = rawWeb3Response ? { raw: rawWeb3Response } : {};
-      }
-
-      // Normalise Web3Forms success
-      const emailSuccess =
-        data?.success === true ||
-        data?.success === "true" ||
-        data?.status === "success";
-
-      if (!resp.ok || !emailSuccess) {
+      if (!emailResult.ok) {
         console.error("Web3Forms error:", {
-          status: resp.status,
-          data,
-          raw: rawWeb3Response,
+          status: emailResult.status,
+          data: emailResult.data,
+          raw: emailResult.raw,
         });
         return withCors(
           {
             success: false,
-            message: data?.message || data?.raw || "Failed to send enquiry via email",
+            message:
+              emailResult.message ||
+              "Failed to send enquiry via email",
           },
-          resp.ok ? 500 : resp.status,
+          emailResult.status,
           origin
         );
       }
 
       emailResponseMessage =
-        data?.message ||
+        emailResult.message ||
         "Enquiry sent successfully. We will contact you shortly.";
     }
 
